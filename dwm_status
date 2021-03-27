@@ -1,0 +1,141 @@
+#!/bin/sh
+audioInt="Master"
+red='\033[33;31m';
+yell='\033[33;33m';
+grn='\033[33;32m';
+no='\033[0m';
+dl=" | ";
+netInt=$(ip addr | awk '/state UP/ {print $2}' | tr -d [[:punct:]])
+
+weather() {
+	echo -n "$(cat /tmp/weather_today)$dl"
+}
+
+user() {
+	echo -n "$USER@$(hostname)"$dl
+}
+
+song() {
+	song=$(cmus-remote -C 'format_print "%t - %a"')
+	status=$(cmus-remote -C status | awk 'FNR==1 {print $2}')
+	[ "$status" = "playing" ] && echo -n "$song$dl" || echo -n ""
+}
+
+ram() {
+	echo -n "mem $(cat /proc/meminfo | \
+		awk -v RS="\n\n+" '{printf "%2.0f",($26/$2)*100}')%$dl"
+}
+
+ram_used() {
+	echo -n "mem `cat /proc/meminfo | \
+		awk -v RS="\n\n+" '{printf "%2.2f",($2-$5-$11-$14)*1024}' \
+		| xargs -0 numfmt --to=iec --suffix=B`$dl"
+}
+
+ipaddr() {
+	echo -n "$(ifconfig "$netInt" | awk '/inet\ / {print $2}')$dl"
+}
+
+exip() {
+	echo -n "$(curl -s ifconfig.me/ip)$dl"
+}
+
+volume() {
+	echo -n "$(amixer sget $audioInt | tail -1 | \
+		sed 's/.*\[\([0-9]*%\)\].*/\1/')$dl"
+}
+
+
+utime() {
+	echo -n "up $(uptime -p | grep -oz '[0-9\,]' | tr -d '\0')$dl"
+}
+
+temp() {
+	echo -n "$(sed 's/[0-9]\{3\}$/°C/' /sys/class/thermal/thermal_zone1/temp)$dl"
+}
+
+battery() {
+	bat=$(acpi -b | awk '{print "" $4}' | grep -Eoz [[:digit:]])
+	state=$(acpi -b | awk '{print $3}' | tr -d ',')
+
+	if [ "$bat" -le "5" ] && [ "$state" != "Charging" ];
+	then
+		notify-send -u critical \
+			-t 59000 \
+			"Battery is less than 5%, Time to charge!"
+	elif [ "$bat" -ge "99" ] && [ "$state" = "Charging" ];
+	then
+		notify-send -t 10000 \
+			"Battery Charged, uplug!"
+	fi
+}
+
+bat() {
+	echo -n "$(acpi -b | awk '{print "" $4}' | grep -Eoz [[:digit:]])$dl"
+
+}
+
+xdate() {
+	date '+%a %d %b - %H:%M'
+}
+
+cpu() {
+	cpu=`grep 'cpu ' /proc/stat`
+	pcpu=`cat /tmp/cpstat`
+
+	if [ -f /tmp/cpstat ]; then
+		perc=$(echo -n $cpu $pcpu | awk -v RS=""\
+			'{printf "%2.0f",($13-$2+$15-$4)*100/($13-$2+$15-$4+$16-$5)}')
+	fi
+
+	echo "$cpu" > /tmp/cpstat
+	echo -n "cpu $perc%$dl"
+
+}
+
+high_load() {
+	echo -n "$(ps axo ucmd,pcpu --sort=pcpu | tail -n 1 | tr -s '\ ')$dl"
+}
+
+vpn() {
+	vpnstatus=$(mullvad status | awk '{print $3}')
+
+	[ $vpnstatus = "Connected" ] && echo -n "VPN$dl"
+}
+
+net() {
+	rx=`cat /sys/class/net/"$netInt"/statistics/rx_bytes`
+	tx=`cat /sys/class/net/"$netInt"/statistics/tx_bytes`
+	prx=`cat /tmp/prx`
+	ptx=`cat /tmp/ptx`
+	rate=1024
+
+	[ -f /tmp/prx ] &&\
+		txr=$(numfmt --to=iec --suffix=B $(($tx-$ptx)))\
+		rxr=$(numfmt --to=iec --suffix=B $(($rx-$prx)))
+
+	printf "In: %5s | Out: %5s %s " $rxr $txr $dl
+
+	echo $rx > /tmp/prx
+	echo $tx > /tmp/ptx
+}
+
+while true; do
+
+	bar=$(
+		vpn
+		high_load
+		song
+		cpu
+		temp
+		net
+		ram_used
+		xdate
+	)		
+
+	xsetroot -name " $bar"
+
+sleep 1
+done
+
+
