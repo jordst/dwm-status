@@ -1,10 +1,7 @@
 #!/bin/sh
 audioInt="Master"
-red='\033[33;31m';
-yell='\033[33;33m';
-grn='\033[33;32m';
-no='\033[0m';
 dl=" | ";
+log=/tmp/netlog
 netInt=$(ip addr | awk '/state UP/ {print $2}' | tr -d [[:punct:]])
 
 weather() {
@@ -62,17 +59,16 @@ battery() {
 	then
 		notify-send -u critical \
 			-t 59000 \
-			"Battery is less than 5%, Time to charge!"
+			"Battery is less than 5%, charge!"
 	elif [ "$bat" -ge "99" ] && [ "$state" = "Charging" ];
 	then
 		notify-send -t 10000 \
-			"Battery Charged, uplug!"
+			"Battery Charged, unplug!"
 	fi
 }
 
 bat() {
 	echo -n "$(acpi -b | awk '{print "" $4}' | grep -Eoz [[:digit:]])$dl"
-
 }
 
 xdate() {
@@ -90,7 +86,6 @@ cpu() {
 
 	echo "$cpu" > /tmp/cpstat
 	echo -n "cpu $perc%$dl"
-
 }
 
 high_load() {
@@ -104,24 +99,18 @@ vpn() {
 }
 
 net() {
+	[ -f "$log" ] || echo "0 0" > "$log"
+	read -r prx ptx < "$log"
 	rx=`cat /sys/class/net/"$netInt"/statistics/rx_bytes`
 	tx=`cat /sys/class/net/"$netInt"/statistics/tx_bytes`
-	prx=`cat /tmp/prx`
-	ptx=`cat /tmp/ptx`
-	rate=1024
-
-	[ -f /tmp/prx ] &&\
-		txr=$(numfmt --to=iec --suffix=B $(($tx-$ptx)))\
-		rxr=$(numfmt --to=iec --suffix=B $(($rx-$prx)))
+	txr=$(numfmt --to=iec --suffix=B $(($tx-$ptx)))
+	rxr=$(numfmt --to=iec --suffix=B $(($rx-$prx)))
 
 	printf "In: %5s | Out: %5s %s " $rxr $txr $dl
-
-	echo $rx > /tmp/prx
-	echo $tx > /tmp/ptx
+	echo "$rx $tx" > "$log"
 }
 
 while true; do
-
 	bar=$(
 		vpn
 		high_load
@@ -132,10 +121,6 @@ while true; do
 		ram_used
 		xdate
 	)		
-
 	xsetroot -name " $bar"
-
 sleep 1
 done
-
-
